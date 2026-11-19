@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Credit Risk Predictor</title>
+  <meta name="description" content="Estimate a borrower's probability of default with a calibrated XGBoost model.">
+  <link rel="stylesheet" href="/static/style.css">
+  <script>
+    // Apply saved theme before paint to avoid a flash
+    try {
+      const t = localStorage.getItem("cr-theme");
+      if (t) document.documentElement.setAttribute("data-theme", t);
+    } catch (e) {}
+  </script>
+</head>
+<body>
+  <div class="bg" aria-hidden="true">
+    <span class="blob b1"></span>
+    <span class="blob b2"></span>
+    <span class="blob b3"></span>
+  </div>
+
+  <header class="topbar">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+        <path d="M16 3 4 8v8c0 7 5 11.5 12 13 7-1.5 12-6 12-13V8L16 3Z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/>
+        <path d="m11 16.5 3.5 3.5L21 13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <div>
+        <h1>Credit Risk Predictor</h1>
+        <p class="tagline">Calibrated XGBoost · probability of default</p>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <span class="api-status" id="apiStatus" data-state="checking">
+        <span class="dot" aria-hidden="true"></span><span class="api-label">Connecting…</span>
+      </span>
+      <button class="icon-btn" id="themeToggle" type="button" aria-label="Toggle dark mode">
+        <svg class="i-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.5M12 19.5V22M4.2 4.2l1.8 1.8M18 18l1.8 1.8M2 12h2.5M19.5 12H22M4.2 19.8 6 18M18 6l1.8-1.8"/></svg>
+        <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11Z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- ========== FORM ========== -->
+    <section class="card form-card reveal" aria-labelledby="formTitle">
+      <div class="card-head">
+        <h2 id="formTitle">Loan application</h2>
+        <div class="presets" role="group" aria-label="Fill with an example">
+          <span class="presets-label">Try:</span>
+          <button type="button" class="chip" data-preset="strong">Strong</button>
+          <button type="button" class="chip" data-preset="average">Average</button>
+          <button type="button" class="chip" data-preset="risky">Risky</button>
+        </div>
+      </div>
+
+      <form id="loanForm" novalidate>
+        <fieldset>
+          <legend><span class="step">1</span> Applicant</legend>
+          <div class="grid">
+            <div class="field">
+              <label for="person_age">Age</label>
+              <div class="input-wrap">
+                <input type="number" id="person_age" name="person_age" min="18" max="100" step="1" required>
+                <span class="suffix">yrs</span>
+              </div>
+            </div>
+            <div class="field">
+              <label for="person_income">Annual income</label>
+              <div class="input-wrap">
+                <span class="prefix">$</span>
+                <input type="number" id="person_income" name="person_income" min="1000" step="500" required>
+              </div>
+            </div>
+            <div class="field">
+              <label for="person_emp_length">Employment length</label>
+              <div class="input-wrap">
+                <input type="number" id="person_emp_length" name="person_emp_length" min="0" max="60" step="1" required>
+                <span class="suffix">yrs</span>
+              </div>
+            </div>
+            <div class="field">
+              <label for="cb_person_cred_hist_length">Credit history</label>
+              <div class="input-wrap">
+                <input type="number" id="cb_person_cred_hist_length" name="cb_person_cred_hist_length" min="0" max="60" step="1" required>
+                <span class="suffix">yrs</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="field">
+            <span class="label" id="homeLabel">Home ownership</span>
+            <div class="segmented" role="radiogroup" aria-labelledby="homeLabel">
+              <label><input type="radio" name="person_home_ownership" value="RENT" required><span>Rent</span></label>
+              <label><input type="radio" name="person_home_ownership" value="MORTGAGE"><span>Mortgage</span></label>
+              <label><input type="radio" name="person_home_ownership" value="OWN"><span>Own</span></label>
+              <label><input type="radio" name="person_home_ownership" value="OTHER"><span>Other</span></label>
+            </div>
+          </div>
+
+          <div class="field">
+            <span class="label" id="defaultLabel">Previous default on file</span>
+            <div class="segmented two" role="radiogroup" aria-labelledby="defaultLabel">
+              <label><input type="radio" name="cb_person_default_on_file" value="N" required><span>No</span></label>
+              <label><input type="radio" name="cb_person_default_on_file" value="Y"><span>Yes</span></label>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend><span class="step">2</span> Loan</legend>
+          <div class="grid">
+            <div class="field">
+              <label for="loan_amnt">Loan amount</label>
+              <div class="input-wrap">
+                <span class="prefix">$</span>
+                <input type="number" id="loan_amnt" name="loan_amnt" min="500" max="35000" step="500" required>
+              </div>
+            </div>
+            <div class="field">
+              <label for="loan_intent">Purpose</label>
+              <div class="input-wrap select-wrap">
+                <select id="loan_intent" name="loan_intent" required>
+                  <option value="PERSONAL">Personal</option>
+                  <option value="EDUCATION">Education</option>
+                  <option value="MEDICAL">Medical</option>
+                  <option value="VENTURE">Venture</option>
+                  <option value="HOMEIMPROVEMENT">Home improvement</option>
+                  <option value="DEBTCONSOLIDATION">Debt consolidation</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="field">
+            <div class="range-head">
+              <label for="loan_int_rate">Interest rate</label>
+              <output id="rateOut" for="loan_int_rate">11.0%</output>
+            </div>
+            <input type="range" id="loan_int_rate" name="loan_int_rate" min="5" max="24" step="0.1">
+          </div>
+
+          <div class="field">
+            <span class="label" id="gradeLabel">Loan grade <small>(A = best)</small></span>
+            <div class="grades" role="radiogroup" aria-labelledby="gradeLabel">
+              <label><input type="radio" name="loan_grade" value="A" required><span>A</span></label>
+              <label><input type="radio" name="loan_grade" value="B"><span>B</span></label>
+              <label><input type="radio" name="loan_grade" value="C"><span>C</span></label>
+              <label><input type="radio" name="loan_grade" value="D"><span>D</span></label>
+              <label><input type="radio" name="loan_grade" value="E"><span>E</span></label>
+              <label><input type="radio" name="loan_grade" value="F"><span>F</span></label>
+              <label><input type="radio" name="loan_grade" value="G"><span>G</span></label>
+            </div>
+          </div>
+
+          <div class="ratio" aria-live="polite">
+            <div class="ratio-head">
+              <span>Loan as % of income</span>
+              <strong id="ratioOut">–</strong>
+            </div>
+            <div class="ratio-bar"><span id="ratioFill"></span></div>
+            <p class="hint">Calculated automatically from loan amount ÷ income.</p>
+          </div>
+        </fieldset>
+
+        <p class="form-error" id="formError" role="alert" hidden></p>
+
+        <button type="submit" class="primary" id="submitBtn">
+          <span class="btn-label">Assess risk</span>
+          <span class="spinner" aria-hidden="true"></span>
+          <svg class="btn-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </button>
+      </form>
+    </section>
+
+    <!-- ========== RESULT ========== -->
+    <section class="card result-card reveal" aria-labelledby="resultTitle" aria-live="polite">
+      <div class="card-head">
+        <h2 id="resultTitle">Risk assessment</h2>
+      </div>
+
+      <div class="gauge-wrap">
+        <svg class="gauge" viewBox="0 0 240 140" role="img" aria-labelledby="gaugeDesc">
+          <desc id="gaugeDesc">Probability of default gauge</desc>
+          <path class="gauge-track" d="M 20 120 A 100 100 0 0 1 220 120" pathLength="100"/>
+          <path class="gauge-fill" id="gaugeFill" d="M 20 120 A 100 100 0 0 1 220 120" pathLength="100"/>
+          <g id="thresholdMark" class="threshold-mark">
+            <line x1="120" y1="4" x2="120" y2="36"/>
+          </g>
+          <text x="20" y="136" class="gauge-axis" text-anchor="middle">0%</text>
+          <text x="220" y="136" class="gauge-axis" text-anchor="middle">100%</text>
+        </svg>
+        <div class="gauge-center">
+          <div class="prob" id="probOut">–</div>
+          <div class="prob-label">probability of default</div>
+        </div>
+      </div>
+
+      <div class="verdict" id="verdict" data-state="idle">
+        <span class="verdict-icon" aria-hidden="true">
+          <svg class="i-idle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>
+          <svg class="i-low" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12.5 2.8 2.8L16.5 9.5"/></svg>
+          <svg class="i-high" viewBox="0 0 24 24"><path d="M12 3 2 20h20L12 3Z"/><path d="M12 10v4.5M12 17.5h.01"/></svg>
+        </span>
+        <div>
+          <div class="verdict-title" id="verdictTitle">Awaiting application</div>
+          <div class="verdict-sub" id="verdictSub">Fill in the form or pick an example, then assess.</div>
+        </div>
+      </div>
+
+      <dl class="stats">
+        <div class="stat">
+          <dt>Decision threshold</dt>
+          <dd id="thresholdOut">–</dd>
+        </div>
+        <div class="stat">
+          <dt>Margin to threshold</dt>
+          <dd id="marginOut">–</dd>
+        </div>
+      </dl>
+
+      <div class="history">
+        <div class="history-head">
+          <h3>Recent assessments</h3>
+          <button type="button" class="link-btn" id="clearHistory" hidden>Clear</button>
+        </div>
+        <ol id="historyList" class="history-list"></ol>
+        <p class="empty" id="historyEmpty">No assessments yet.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    Model output is a statistical estimate for educational purposes, not a lending decision.
+  </footer>
+
+  <script src="/static/script.js"></script>
+</body>
+</html>
