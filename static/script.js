@@ -171,12 +171,15 @@
     const hist = num("cb_person_cred_hist_length");
     const amount = num("loan_amnt");
 
-    if (!(age >= 18 && age <= 100)) mark("person_age", "Age must be between 18 and 100.");
+    // Limits match the API (main.py) and the range of the training data.
+    if (!(age >= 20 && age <= 100)) mark("person_age", "Age must be between 20 and 100.");
     if (!(income > 0)) mark("person_income", "Enter an annual income.");
     if (!(emp >= 0)) mark("person_emp_length", "Enter employment length in years.");
-    else if (age >= 18 && emp > age - 14) mark("person_emp_length", "Employment length is too long for this age.");
+    else if (age >= 20 && emp > age - 14) mark("person_emp_length", "Employment length is too long for this age.");
     if (!(hist >= 0)) mark("cb_person_cred_hist_length", "Enter credit history length in years.");
     if (!(amount > 0)) mark("loan_amnt", "Enter a loan amount.");
+    else if (amount > 35000) mark("loan_amnt", "Loan amount can be at most $35,000.");
+    else if (income > 0 && amount > income) mark("loan_amnt", "Loan amount cannot be more than annual income.");
     ["person_home_ownership", "cb_person_default_on_file", "loan_grade"].forEach((name) => {
       if (!form.elements[name].value) mark(name, "Please complete every choice.");
     });

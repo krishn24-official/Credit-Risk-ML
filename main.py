@@ -64,7 +64,8 @@ class LoanApplication(BaseModel):
         },
     )
 
-    person_age: int = Field(ge=18, le=100)
+    # The training data starts at age 20; younger applicants were never seen by the model.
+    person_age: int = Field(ge=20, le=100)
     person_income: float = Field(gt=0, le=10_000_000, allow_inf_nan=False)
     # Categories must match the training data exactly: the model's OneHotEncoder
     # uses handle_unknown="ignore", so a typo would silently produce a wrong score.
@@ -83,6 +84,14 @@ class LoanApplication(BaseModel):
     def check_emp_length_vs_age(self):
         if self.person_emp_length > self.person_age - 14:
             raise ValueError("person_emp_length is too long for person_age")
+        return self
+
+    @model_validator(mode="after")
+    def check_loan_vs_income(self):
+        # The largest loan-to-income ratio in the training data is 0.83. Ratios above 1
+        # are far outside what the model has seen, and it returns a probability of 1.0.
+        if self.loan_amnt > self.person_income:
+            raise ValueError("loan_amnt cannot be more than person_income")
         return self
 
     # Derived on the server, the same way the training data defines it

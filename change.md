@@ -78,3 +78,24 @@ clicked through manually.
 
 The "Risky" preset returns a probability of exactly 1.0. That comes from the isotonic
 calibration in the model, not from these changes. It's fixed in step 4 (retraining).
+
+## Step 1b: Two more input limits (2026-11-21)
+
+Found after step 1 by sending edge cases to the API. Both inputs were accepted and scored,
+although the model had never seen anything like them.
+
+| Where | What changed | Why |
+|---|---|---|
+| `main.py`, `person_age` | Minimum age raised from 18 to **20**. | The youngest applicant in the training data is 20. Age 18 was accepted and returned 0.0614 with no warning. |
+| `main.py`, `check_loan_vs_income` | New rule: `loan_amnt` may not be more than `person_income`. | The largest loan-to-income ratio in the training data is 0.83. A loan of 3× income was accepted and returned a probability of 1.0. |
+| `static/script.js`, `validate()` | Same two rules, plus the 35,000 loan maximum, checked in the form before sending. | The user sees the problem next to the field instead of after a round trip. |
+| `static/index.html` | Age input `min` changed from 18 to 20. | Matches the API. |
+
+### Verified
+
+`TestClient` against the real model: age 19 and a loan of 3× income return 422 with clear
+messages. Age 20, the "Average" form values (0.0481) and the "Strong" preset (0.0029) return
+the same results as before. `node --check static/script.js` passes.
+
+Loans between 0.84× and 1× income are still accepted. A ratio of 1.0 returns 1.0, because of
+the isotonic calibration noted above.
