@@ -195,7 +195,7 @@
       loan_grade: f.loan_grade.value,
       loan_amnt: parseFloat(f.loan_amnt.value),
       loan_int_rate: parseFloat(f.loan_int_rate.value),
-      loan_percent_income: Math.round(getRatio() * 100) / 100,
+      // loan_percent_income is computed by the server from loan_amnt / person_income.
       cb_person_default_on_file: f.cb_person_default_on_file.value,
       cb_person_cred_hist_length: parseInt(f.cb_person_cred_hist_length.value, 10),
     };
@@ -285,8 +285,32 @@
   });
 
   // ---------- Submit ----------
+  const REQUEST_TIMEOUT_MS = 60000; // Render free tier can take ~50 s to wake up
+  const SLOW_HINT_MS = 5000;
+  let inFlight = false;
+
+  // Turn a FastAPI error body into a readable message.
+  async function describeError(res) {
+    try {
+      const body = await res.json();
+      if (Array.isArray(body.detail)) {
+        // 422 validation errors: [{ loc: ["body", "field"], msg: "..." }, ...]
+        return body.detail
+          .map((d) => {
+            const field = Array.isArray(d.loc) ? d.loc.filter((p) => p !== "body").join(".") : "";
+            const msg = String(d.msg || "").replace(/^Value error, /, "");
+            return field ? `${field}: ${msg}` : msg;
+          })
+          .join("; ");
+      }
+      if (typeof body.detail === "string") return body.detail;
+    } catch { /* not JSON */ }
+    return `Server responded with ${res.status}`;
+  }
+
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
+    if (inFlight) return; // Enter key can still submit while the button looks busy
     formError.hidden = true;
 
     const errors = validate();
@@ -297,26 +321,47 @@
     }
 
     const payload = buildPayload();
+    const btnLabel = submitBtn.querySelector(".btn-label");
+    inFlight = true;
+    submitBtn.disabled = true;
     submitBtn.classList.add("loading");
-    submitBtn.querySelector(".btn-label").textContent = "Assessing…";
+    btnLabel.textContent = "Assessing…";
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const slowId = setTimeout(() => { btnLabel.textContent = "Waking up the server…"; }, SLOW_HINT_MS);
 
     try {
       const res = await fetch(`${API_BASE}/predict`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
+        signal: controller.signal,
       });
-      if (!res.ok) throw new Error(`Server responded with ${res.status}`);
+      if (!res.ok) {
+        const message = await describeError(res);
+        formError.textContent = res.status === 422
+          ? `Please check the form: ${message}`
+          : `Could not get a prediction (${message}). Please try again.`;
+        formError.hidden = false;
+        return;
+      }
       const data = await res.json();
       renderResult(data);
       addHistory(payload, data);
       if (window.innerWidth <= 920) resultCard.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth" });
     } catch (err) {
-      formError.textContent = `Could not get a prediction (${err.message}). The server may be waking up — try again in a few seconds.`;
+      formError.textContent = err.name === "AbortError"
+        ? "The server took too long to respond. It may still be starting up — try again in a moment."
+        : "Could not reach the server. It may be waking up — try again in a few seconds.";
       formError.hidden = false;
     } finally {
+      clearTimeout(timeoutId);
+      clearTimeout(slowId);
+      inFlight = false;
+      submitBtn.disabled = false;
       submitBtn.classList.remove("loading");
-      submitBtn.querySelector(".btn-label").textContent = "Assess risk";
+      btnLabel.textContent = "Assess risk";
     }
   });
 
