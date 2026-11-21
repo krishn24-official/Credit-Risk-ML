@@ -64,8 +64,7 @@ class LoanApplication(BaseModel):
         },
     )
 
-    # The training data starts at age 20; younger applicants were never seen by the model.
-    person_age: int = Field(ge=20, le=100)
+    person_age: int = Field(ge=18, le=100)
     person_income: float = Field(gt=0, le=10_000_000, allow_inf_nan=False)
     # Categories must match the training data exactly: the model's OneHotEncoder
     # uses handle_unknown="ignore", so a typo would silently produce a wrong score.
